@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Check-in — Asia-Pacific Digital Health Interoperability Bootcamp 2026</title>
+<style>
+  :root { --brand:#0b5394; --ok:#16a34a; --err:#dc2626; --bg:#f4f6f9; --card:#fff; --text:#1f2937; --muted:#6b7280; --line:#d1d5db; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); font-size:17px; }
+  header { background:var(--brand); color:#fff; padding:18px 16px; text-align:center; }
+  header h1 { margin:0; font-size:1.3rem; }
+  header p { margin:4px 0 0; opacity:.85; font-size:.9rem; }
+  main { max-width:520px; margin:0 auto; padding:16px; }
+  .card { background:var(--card); border-radius:14px; padding:20px; box-shadow:0 1px 4px rgba(0,0,0,.08); margin-bottom:16px; }
+  h2 { margin:0 0 12px; font-size:1.15rem; }
+  label { display:block; font-weight:600; margin:14px 0 6px; font-size:.95rem; }
+  input[type=text], input[type=email], input[type=tel], select {
+    width:100%; padding:13px 12px; border:1.5px solid var(--line); border-radius:10px; font-size:17px; background:#fff; color:var(--text);
+  }
+  input:focus, select:focus { outline:none; border-color:var(--brand); }
+  .missing { border-color:#f59e0b !important; background:#fffbeb !important; }
+  .invalid { border-color:var(--err) !important; }
+  .onfile { font-size:.85rem; color:#14532d; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:8px 10px; margin-top:6px; line-height:1.45; }
+  .onfile .masked { display:block; font-size:1.05rem; font-weight:700; letter-spacing:.3px; margin:3px 0; word-break:break-all; }
+  .onfile:empty { display:none; }
+  button { width:100%; padding:15px; border:0; border-radius:10px; font-size:17px; font-weight:600; cursor:pointer; margin-top:18px; }
+  .primary { background:var(--brand); color:#fff; }
+  .primary:disabled { opacity:.6; }
+  .link { background:none; color:var(--brand); margin-top:8px; padding:10px; }
+  .result { display:flex; justify-content:space-between; align-items:center; width:100%; text-align:left; background:#f9fafb; border:1.5px solid var(--line); margin-top:10px; padding:14px; font-weight:500; }
+  .result small { display:block; color:var(--muted); font-weight:400; }
+  .badge { font-size:.75rem; background:#dcfce7; color:#166534; padding:3px 8px; border-radius:20px; white-space:nowrap; }
+  .radios { display:flex; gap:10px; }
+  .radios label { flex:1; margin:0; font-weight:500; border:1.5px solid var(--line); border-radius:10px; padding:12px; display:flex; gap:8px; align-items:center; background:#fff; }
+  .radios input { width:20px; height:20px; }
+  .q { margin-top:18px; }
+  .q p { margin:0 0 8px; font-weight:600; font-size:.95rem; }
+  .error { color:var(--err); background:#fef2f2; padding:10px 12px; border-radius:8px; margin-top:14px; display:none; }
+  .muted { color:var(--muted); font-size:.9rem; }
+  .req { color:var(--err); }
+  #success { text-align:center; padding:30px 20px; }
+  .tick { width:160px; height:160px; border-radius:50%; background:var(--ok); margin:10px auto 20px; display:flex; align-items:center; justify-content:center; animation:pop .4s ease-out; }
+  .tick svg { width:96px; height:96px; }
+  @keyframes pop { 0%{transform:scale(.3);opacity:0} 80%{transform:scale(1.08)} 100%{transform:scale(1);opacity:1} }
+  .s-name { font-size:2rem; font-weight:800; margin:0; line-height:1.2; }
+  .s-org { color:var(--muted); margin:6px 0 16px; }
+  .s-status { display:inline-block; font-size:1.6rem; font-weight:800; color:var(--ok); border:3px solid var(--ok); border-radius:12px; padding:6px 22px; letter-spacing:1px; }
+  .s-time { margin-top:14px; color:var(--muted); }
+  .s-help { margin-top:22px; background:#eff6ff; color:#1e3a8a; padding:12px; border-radius:10px; font-weight:600; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Welcome — Participant Check-in</h1>
+  <p>Asia-Pacific Digital Health Interoperability Bootcamp 2026</p>
+</header>
+<main>
+
+  <!-- Step 1: search -->
+  <section id="step-search" class="card">
+    <h2>Find your registration</h2>
+    <label for="q">Enter your full name</label>
+    <input id="q" type="text" autocomplete="off" placeholder="e.g. Maria Santos">
+    <div id="results"></div>
+    <p id="noresults" class="muted hidden">No match found. Check spelling or try just your first or last name.</p>
+    <button class="link" id="walkin">I can't find my name — check in as new participant</button>
+  </section>
+
+  <!-- Step 2: form -->
+  <section id="step-form" class="card hidden">
+    <h2 id="form-title">Please check your details</h2>
+    <p class="muted" id="form-sub">Correct anything that's wrong and fill in the highlighted fields. All fields are required.</p>
+    <form id="form" novalidate>
+      <label>First name <span class="req">*</span></label><input name="firstName" type="text" autocomplete="given-name">
+      <label>Last name <span class="req">*</span></label><input name="lastName" type="text" autocomplete="family-name">
+      <label>Designation / Role <span class="req">*</span></label><input name="role" type="text">
+      <label>Organisation / Country <span class="req">*</span></label><input name="organisation" type="text">
+      <label>Email <span class="req">*</span></label><input name="email" type="email" autocomplete="email" inputmode="email">
+      <div class="onfile" id="emailOnFile"></div>
+      <label>Phone <span class="req">*</span></label><input name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="Include country code, e.g. +61 4…">
+      <div class="onfile" id="phoneOnFile"></div>
+      <label>Gender <span class="req">*</span></label>
+      <select name="gender">
+        <option value="">Select…</option>
+        <option>Woman or female</option>
+        <option>Man or male</option>
+        <option>Non-binary</option>
+        <option>I use a different term</option>
+        <option>Prefer not to say</option>
+      </select>
+
+      <div class="q" data-q="consentWhatsapp">
+        <p>Do you consent to being added to the Asia-Pacific Community WhatsApp group? <span class="req">*</span></p>
+        <div class="radios">
+          <label><input type="radio" name="consentWhatsapp" value="Yes"> Yes</label>
+          <label><input type="radio" name="consentWhatsapp" value="No"> No</label>
+        </div>
+      </div>
+      <div class="q" data-q="consentPhoto">
+        <p>Do you consent to photos of you being taken and shared on social media? <span class="req">*</span></p>
+        <div class="radios">
+          <label><input type="radio" name="consentPhoto" value="Yes"> Yes</label>
+          <label><input type="radio" name="consentPhoto" value="No"> No</label>
+        </div>
+      </div>
+
+      <div class="error" id="err"></div>
+      <button class="primary" type="submit" id="submit">Submit &amp; Check in</button>
+      <button class="link" type="button" id="back">← Back to search</button>
+    </form>
+  </section>
+
+  <!-- Step 3: success -->
+  <section id="success" class="card hidden">
+    <div class="tick"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+    <p class="s-name" id="s-name"></p>
+    <p class="s-org" id="s-org"></p>
+    <div class="s-status">CHECKED-IN</div>
+    <p class="s-time" id="s-time"></p>
+    <div class="s-help">Please show this screen at the front desk to collect your badge.</div>
+    <button class="link" id="another">Check in another person</button>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const FIELDS = ['firstName','lastName','role','organisation','email','phone','gender'];
+const form = $('form');
+let currentId = null;
+let onFile = {}; // fields we already hold (shown masked) — may be left blank to keep
+
+function show(step) {
+  ['step-search','step-form','success'].forEach(s => $(s).classList.toggle('hidden', s !== step));
+  window.scrollTo(0, 0);
+}
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+// ---- search (debounced) ----
+let timer;
+$('q').addEventListener('input', () => {
+  clearTimeout(timer);
+  timer = setTimeout(runSearch, 250);
+});
+async function runSearch() {
+  const q = $('q').value.trim();
+  $('results').innerHTML = '';
+  $('noresults').classList.add('hidden');
+  if (q.replace(/s/g, '').length < 3) return;
+  const list = await fetch('/api/search?q=' + encodeURIComponent(q)).then(r => r.json()).catch(() => []);
+  if (!list.length) {
+    $('noresults').textContent = 'No match found. Check spelling or try just your first or last name.';
+    $('noresults').classList.remove('hidden');
+    return;
+  }
+  $('results').innerHTML = list.map(p =>
+    `<button class="result" data-id="${esc(p.id)}"><span>${esc(p.firstName)} ${esc(p.lastName)}<small>${esc(p.organisation)}</small></span>${p.checkedIn ? '<span class="badge">Already checked in</span>' : ''}</button>`
+  ).join('');
+}
+$('results').addEventListener('click', async e => {
+  const btn = e.target.closest('.result');
+  if (!btn) return;
+  const rec = await fetch('/api/participant/' + btn.dataset.id).then(r => r.json());
+  if (rec.checkedIn) {
+    $('noresults').textContent = rec.firstName + ' ' + rec.lastName + ' is already checked in. If this is you, please go to the front desk.';
+    $('noresults').classList.remove('hidden');
+    return;
+  }
+  openForm(rec);
+});
+$('walkin').addEventListener('click', () => openForm(null));
+
+// ---- form ----
+function openForm(rec) {
+  form.reset();
+  currentId = rec ? rec.id : null;
+  $('err').style.display = 'none';
+  $('form-title').textContent = rec ? 'Please check your details' : 'New participant';
+  $('form-sub').textContent = rec
+    ? 'Correct anything that\'s wrong and fill in the highlighted fields. All fields are required.'
+    : 'Please fill in your details. All fields are required.';
+  if (!rec) {
+    const parts = $('q').value.trim().split(/\s+/);
+    rec = { firstName: parts.shift() || '', lastName: parts.join(' ') };
+  }
+  for (const f of FIELDS) form.elements[f].value = rec[f] || '';
+  onFile = { email: rec.emailMasked || '', phone: rec.phoneMasked || '' };
+  for (const f of ['email', 'phone']) {
+    const what = f === 'email' ? 'email' : 'phone number';
+    $(f + 'OnFile').innerHTML = onFile[f]
+      ? `We have this ${what} for you:<span class="masked">${esc(onFile[f])}</span>If this is yours, leave the box empty. If not, type your correct ${what} above.`
+      : '';
+    form.elements[f].placeholder = onFile[f] ? (f === 'email' ? 'Type a different email (optional)' : 'Type a different number (optional)') : (f === 'phone' ? 'Include country code, e.g. +61 4…' : '');
+  }
+  if (rec.gender && ![...form.elements.gender.options].some(o => o.value === rec.gender)) form.elements.gender.value = '';
+  for (const c of ['consentWhatsapp','consentPhoto']) if (rec[c]) form.querySelector(`input[name=${c}][value=${rec[c]}]`)?.click();
+  markMissing();
+  show('step-form');
+}
+function markMissing() {
+  for (const f of FIELDS) {
+    const el = form.elements[f];
+    const empty = !el.value.trim() && !onFile[f];
+    el.classList.toggle('missing', empty);
+    el.classList.remove('invalid');
+  }
+}
+form.addEventListener('input', e => {
+  if (e.target.name && FIELDS.includes(e.target.name)) {
+    e.target.classList.toggle('missing', !e.target.value.trim() && !onFile[e.target.name]);
+    e.target.classList.remove('invalid');
+  }
+});
+$('back').addEventListener('click', () => show('step-search'));
+
+form.addEventListener('submit', async e => {
+  e.preventDefault();
+  const data = { id: currentId };
+  const problems = [];
+  for (const f of FIELDS) {
+    data[f] = form.elements[f].value.trim();
+    if (!data[f] && !onFile[f]) { problems.push(f); form.elements[f].classList.add('invalid'); }
+  }
+  if (data.email && !/^\S+@\S+\.\S+$/.test(data.email)) { problems.push('email'); form.elements.email.classList.add('invalid'); }
+  for (const c of ['consentWhatsapp','consentPhoto']) {
+    data[c] = form.querySelector(`input[name=${c}]:checked`)?.value || '';
+    if (!data[c]) problems.push(c);
+  }
+  if (problems.length) {
+    $('err').textContent = 'Please complete all required fields (highlighted in red) and answer both consent questions.';
+    $('err').style.display = 'block';
+    form.querySelector('.invalid')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  $('submit').disabled = true; $('submit').textContent = 'Checking in…';
+  try {
+    const r = await fetch('/api/checkin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    const out = await r.json();
+    if (!r.ok) throw new Error(out.error || 'Something went wrong');
+    try { localStorage.setItem('checkedIn', JSON.stringify(out)); } catch {}
+    showSuccess(out);
+  } catch (err) {
+    $('err').textContent = err.message + ' Please try again or see the front desk.';
+    $('err').style.display = 'block';
+  } finally {
+    $('submit').disabled = false; $('submit').textContent = 'Submit & Check in';
+  }
+});
+
+function showSuccess(o) {
+  $('s-name').textContent = o.firstName + ' ' + o.lastName;
+  $('s-org').textContent = o.organisation || '';
+  $('s-time').textContent = 'Checked in at ' + new Date(o.checkedInAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  show('success');
+}
+$('another').addEventListener('click', () => {
+  try { localStorage.removeItem('checkedIn'); } catch {}
+  $('q').value = ''; $('results').innerHTML = ''; $('noresults').classList.add('hidden');
+  show('step-search');
+});
+
+// If this phone already checked in, keep showing the tick (handy at the front desk)
+try { const saved = JSON.parse(localStorage.getItem('checkedIn')); if (saved) showSuccess(saved); } catch {}
+</script>
+</body>
+</html>

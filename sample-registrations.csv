@@ -1,0 +1,4 @@
+First Name,Last Name,Designation/Role,Organisation/Country,Email,Phone,Gender
+Test,Person One,Example Role,Example Ministry / Countryland,test.one@example.org,,
+Test,Person Two,Example Role,Example Agency / Countryland,test.two@example.org,,Female
+Test,Person Three,,Example University / Countryland,,,Male
