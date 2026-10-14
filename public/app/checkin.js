@@ -133,5 +133,18 @@ $('another').addEventListener('click', () => {
   show('step-search');
 });
 
-// If this phone already checked in, keep showing the tick (handy at the front desk)
-try { const saved = JSON.parse(localStorage.getItem('checkedIn')); if (saved) showSuccess(saved); } catch {}
+// If this phone already checked in, keep showing the tick (handy at the front desk) —
+// but only while the server still has that check-in (an admin may have cleared or undone it)
+function forgetSaved() { try { localStorage.removeItem('checkedIn'); } catch {} }
+(async () => {
+  let saved;
+  try { saved = JSON.parse(localStorage.getItem('checkedIn')); } catch {}
+  if (!saved) return;
+  if (!saved.id) return forgetSaved(); // saved by an older version — can't verify
+  showSuccess(saved);
+  try {
+    const r = await fetch('/api/participant/' + encodeURIComponent(saved.id));
+    if (r.status === 404) { forgetSaved(); show('step-search'); return; }
+    if (r.ok && !(await r.json()).checkedIn) { forgetSaved(); show('step-search'); }
+  } catch { /* offline: keep showing the saved tick */ }
+})();

@@ -212,7 +212,7 @@ const server = http.createServer(async (req, res) => {
 
       // already checked in: details are locked, just show the confirmation again
       if (rec && rec.checkedInAt)
-        return send(res, 200, { ok: true, already: true, firstName: rec.firstName, lastName: rec.lastName, organisation: rec.organisation, checkedInAt: rec.checkedInAt });
+        return send(res, 200, { ok: true, already: true, id: rec.id, firstName: rec.firstName, lastName: rec.lastName, organisation: rec.organisation, checkedInAt: rec.checkedInAt });
 
       const data = {};
       for (const f of FIELDS) data[f] = clean(b[f]);
@@ -234,7 +234,7 @@ const server = http.createServer(async (req, res) => {
       Object.assign(rec, data);
       rec.checkedInAt = new Date().toISOString();
       save();
-      return send(res, 200, { ok: true, firstName: rec.firstName, lastName: rec.lastName, organisation: rec.organisation, checkedInAt: rec.checkedInAt });
+      return send(res, 200, { ok: true, id: rec.id, firstName: rec.firstName, lastName: rec.lastName, organisation: rec.organisation, checkedInAt: rec.checkedInAt });
     }
 
     // admin API
