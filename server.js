@@ -27,8 +27,14 @@ if (fs.existsSync(DATA_FILE)) {
 }
 function save() {
   const tmp = DATA_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(db, null, 2), { mode: 0o600 });
-  fs.renameSync(tmp, DATA_FILE);
+  const json = JSON.stringify(db, null, 2);
+  fs.writeFileSync(tmp, json, { mode: 0o600 });
+  // Windows antivirus/indexers can briefly lock the file; retry, then fall back to a direct write
+  for (let i = 0; i < 5; i++) {
+    try { fs.renameSync(tmp, DATA_FILE); return; } catch (e) { if (i === 4) break; }
+    const until = Date.now() + 20; while (Date.now() < until);
+  }
+  fs.writeFileSync(DATA_FILE, json, { mode: 0o600 });
 }
 const newId = () => crypto.randomBytes(12).toString('hex');
 
@@ -176,7 +182,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/admin') return send(res, 200, fs.readFileSync(path.join(PUBLIC, 'admin.html')), 'text/html; charset=utf-8');
 
     // public API — generous limit because everyone at the venue may share one IP address
-    if (p.startsWith('/api/') && !p.startsWith('/api/admin/') && limited('pub:' + clientIp(req), 600, 60000))
+    if (p.startsWith('/api/') && !p.startsWith('/api/admin/') && limited('pub:' + clientIp(req), 5000, 60000))
       return send(res, 429, { error: 'Too many requests, please wait a moment.' });
 
     if (req.method === 'GET' && p === '/api/search') return send(res, 200, search(url.searchParams.get('q') || ''));
