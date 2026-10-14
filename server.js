@@ -275,7 +275,7 @@ const server = http.createServer(async (req, res) => {
 server.requestTimeout = 30000;
 server.headersTimeout = 15000;
 
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, process.env.HOST || '0.0.0.0', () => {
   console.log('\n  Event Check-in is running\n');
   console.log('  Admin:  http://localhost:' + PORT + '/admin');
   if (process.env.ADMIN_PIN) console.log('  Admin PIN: (set via ADMIN_PIN)');
