@@ -123,7 +123,7 @@
       </table>
     </div>
     <div class="row" style="justify-content:flex-end">
-      <button id="resetIns">Clear check-ins (keep list)</button>
+      <button class="danger" id="resetIns">Clear all check-ins (keep list)</button>
       <button class="danger" id="clearAll">Delete all data</button>
     </div>
   </section>
@@ -191,7 +191,10 @@ $('tbody').onclick = async e => {
   if (id && confirm('Undo this check-in?')) { await api('/api/admin/undo', { id }); refresh(); }
 };
 $('resetIns').onclick = async () => {
-  if (confirm('Clear all check-ins and remove walk-ins? The registration list is kept.')) { await api('/api/admin/reset-checkins', {}); refresh(); }
+  const n = people.filter(p => p.checkedInAt).length;
+  if (!confirm(`Clear ALL ${n} check-ins, consent answers and walk-ins?\nThe registration list is kept.`)) return;
+  await api('/api/admin/reset-checkins', {});
+  refresh();
 };
 $('clearAll').onclick = async () => {
   if (prompt('This deletes ALL participants and check-ins. Type DELETE to confirm.') === 'DELETE') { await api('/api/admin/clear', {}); refresh(); }
