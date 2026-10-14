@@ -23,7 +23,14 @@ const MAX_WALKINS = 500;
 // ---------- storage ----------
 let db = { participants: [] };
 if (fs.existsSync(DATA_FILE)) {
-  try { db = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch (e) { console.error('data.json unreadable, starting empty'); }
+  try { db = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); }
+  catch (e) {
+    // keep the damaged file for recovery instead of overwriting it on the next save
+    const backup = DATA_FILE + '.corrupt-' + Date.now();
+    fs.renameSync(DATA_FILE, backup);
+    console.error('data.json unreadable — moved to ' + backup + ', starting empty');
+  }
+  if (!db || !Array.isArray(db.participants)) db = { participants: [] };
 }
 function save() {
   const tmp = DATA_FILE + '.tmp';
@@ -101,7 +108,7 @@ const SECURITY_HEADERS = {
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'no-referrer',
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+  'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
 };
 function send(res, code, body, type = 'application/json') {
   res.writeHead(code, { ...SECURITY_HEADERS, 'Content-Type': type, 'Cache-Control': 'no-store' });
@@ -119,7 +126,12 @@ function readBody(req, limit) {
     req.on('error', reject);
   });
 }
-const clientIp = req => (TRUST_PROXY && String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()) || req.socket.remoteAddress;
+// Behind one trusted proxy (Caddy/ALB) the real client IP is the LAST X-Forwarded-For entry;
+// earlier entries come from the client and could be spoofed to dodge the PIN lockout
+const clientIp = req => (TRUST_PROXY && String(req.headers['x-forwarded-for'] || '').split(',').pop().trim()) || req.socket.remoteAddress;
+
+// Short audit trail of admin activity (journald on the server); no participant details
+const audit = (req, action) => console.log(new Date().toISOString() + ' AUDIT ' + action + ' ip=' + clientIp(req));
 
 // simple in-memory rate limiter: max `limit` hits per `windowMs` per key
 const buckets = new Map();
@@ -137,10 +149,11 @@ const pinHash = crypto.createHash('sha256').update(ADMIN_PIN).digest();
 function checkAdmin(req) {
   const ip = clientIp(req);
   const fails = buckets.get('fail:' + ip);
-  if (fails && fails.count >= 10 && Date.now() < fails.reset) return 'locked';
+  if (fails && fails.count >= 10 && Date.now() < fails.reset) { audit(req, 'admin-locked-out'); return 'locked'; }
   const given = crypto.createHash('sha256').update(String(req.headers['x-admin-pin'] || '')).digest();
   if (crypto.timingSafeEqual(given, pinHash)) return 'ok';
   limited('fail:' + ip, 10, 15 * 60000);
+  audit(req, 'admin-wrong-pin');
   return 'bad';
 }
 
@@ -172,10 +185,11 @@ const server = http.createServer(async (req, res) => {
     // pages
     if (req.method === 'GET' && p === '/health') return send(res, 200, { ok: true });
     if (req.method === 'GET' && (p === '/' || p === '/checkin')) return send(res, 200, fs.readFileSync(path.join(PUBLIC, 'checkin.html')), 'text/html; charset=utf-8');
-    if (req.method === 'GET' && /^\/vendor\/[\w.-]+\.js$/.test(p)) {
-      const file = path.join(PUBLIC, 'vendor', path.basename(p));
+    const asset = req.method === 'GET' && p.match(/^\/(vendor|app)\/([\w.-]+\.js)$/);
+    if (asset) {
+      const file = path.join(PUBLIC, asset[1], path.basename(asset[2]));
       if (fs.existsSync(file)) {
-        res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'application/javascript', 'Cache-Control': 'public, max-age=86400' });
+        res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'application/javascript', 'Cache-Control': asset[1] === 'vendor' ? 'public, max-age=86400' : 'no-cache' });
         return res.end(fs.readFileSync(file));
       }
     }
@@ -192,6 +206,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && p === '/api/checkin') {
       const b = await readBody(req, 20000);
+      if (!b || typeof b !== 'object' || Array.isArray(b)) return send(res, 400, { error: 'Bad request.' });
       let rec = b.id ? db.participants.find(x => x.id === b.id) : null;
       if (b.id && !rec) return send(res, 404, { error: 'Registration not found. Please search again.' });
 
@@ -231,6 +246,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'POST' && p === '/api/admin/import') {
         const { rows = [], mode = 'merge' } = await readBody(req, 5e6);
         if (!Array.isArray(rows) || rows.length > 5000) return send(res, 400, { error: 'Too many rows (max 5000).' });
+        if (!['merge', 'replace'].includes(mode)) return send(res, 400, { error: 'Bad import mode.' });
         if (mode === 'replace') db.participants = [];
         let added = 0, updated = 0;
         for (const r of rows) {
@@ -248,12 +264,13 @@ const server = http.createServer(async (req, res) => {
           } else { db.participants.push({ id: newId(), ...row }); added++; }
         }
         save();
+        audit(req, 'import mode=' + mode + ' added=' + added + ' updated=' + updated);
         return send(res, 200, { added, updated, total: db.participants.length });
       }
       if (req.method === 'POST' && p === '/api/admin/undo') {
         const { id } = await readBody(req, 2000);
         const rec = db.participants.find(x => x.id === id);
-        if (rec) { delete rec.checkedInAt; save(); }
+        if (rec) { delete rec.checkedInAt; save(); audit(req, 'undo-checkin'); }
         return send(res, 200, { ok: true });
       }
       if (req.method === 'POST' && p === '/api/admin/reset-checkins') {
@@ -263,10 +280,12 @@ const server = http.createServer(async (req, res) => {
           delete x.checkedInAt; delete x.consentWhatsapp; delete x.consentPhoto;
         }
         save();
+        audit(req, 'clear-checkins');
         return send(res, 200, { ok: true, total: db.participants.length });
       }
       if (req.method === 'POST' && p === '/api/admin/clear') {
         db.participants = []; save();
+        audit(req, 'delete-all-data');
         return send(res, 200, { ok: true });
       }
     }

@@ -25,11 +25,32 @@ IP=$(curl -fsS https://checkip.amazonaws.com | tr -d '[:space:]')
 HOSTNAME_PUBLIC="${DOMAIN:-$(echo "$IP" | tr . -).sslip.io}"
 echo ">> Public address will be: https://$HOSTNAME_PUBLIC/"
 
-echo ">> Installing packages (Node.js, Caddy, git)…"
+echo ">> Installing packages (Node.js 22 LTS, Caddy, git)…"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y -q
-apt-get install -y -q nodejs caddy git unattended-upgrades
+apt-get install -y -q ca-certificates curl gnupg git unattended-upgrades
+install -d -m 0755 /etc/apt/keyrings
+# Official vendor repositories (Ubuntu's own nodejs 18 is end-of-life and its caddy is outdated)
+curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor --yes -o /etc/apt/keyrings/nodesource.gpg
+echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" > /etc/apt/sources.list.d/nodesource.list
+curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/gpg.key | gpg --dearmor --yes -o /etc/apt/keyrings/caddy-stable.gpg
+echo "deb [signed-by=/etc/apt/keyrings/caddy-stable.gpg] https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main" > /etc/apt/sources.list.d/caddy-stable.list
+apt-get update -y -q
+apt-get install -y -q nodejs caddy
 node --version
+caddy version
+
+# Automatic security updates, including Node.js and Caddy from the vendor repositories
+cat > /etc/apt/apt.conf.d/52checkinapp-upgrades <<'UPG'
+Unattended-Upgrade::Origins-Pattern {
+        "site=deb.nodesource.com";
+        "site=dl.cloudsmith.io";
+};
+UPG
+cat > /etc/apt/apt.conf.d/20auto-upgrades <<'UPG'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+UPG
 
 echo ">> Fetching app code…"
 id checkin >/dev/null 2>&1 || useradd --system --home "$APP_DIR" --shell /usr/sbin/nologin checkin
@@ -67,6 +88,13 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+UMask=0077
 ReadWritePaths=$DATA_DIR
 
 [Install]
@@ -77,6 +105,7 @@ cat > /etc/caddy/Caddyfile <<CADDY
 $HOSTNAME_PUBLIC {
 	encode gzip
 	header Strict-Transport-Security "max-age=31536000"
+	header -Server
 	reverse_proxy 127.0.0.1:3000
 }
 CADDY
