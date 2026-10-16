@@ -42,7 +42,7 @@ $('q').addEventListener('input', () => {
 async function runSearch() {
   const q = $('q').value.trim();
   $('results').innerHTML = '';
-  $('noresults').classList.add('hidden');
+  $('noresults').classList.add('hidden'); $('noresults').classList.remove('notice');
   if (q.replace(/\s/g, '').length < 3) return;
   const list = await api('/api/search?q=' + encodeURIComponent(q)).then(r => r.json()).catch(() => []);
   if (!list.length) {
@@ -58,7 +58,15 @@ $('results').addEventListener('click', async e => {
   const btn = e.target.closest('.result');
   if (!btn) return;
   const r = await api('/api/participant/' + encodeURIComponent(btn.dataset.id)).catch(() => null);
-  if (r && r.ok) openForm(await r.json());
+  if (!r || !r.ok) return;
+  const rec = await r.json();
+  if (rec.checkedIn) {
+    $('results').innerHTML = '';
+    $('noresults').textContent = `${rec.firstName} ${rec.lastName} is already checked in. If this is you, please go to the front desk.`;
+    $('noresults').classList.remove('hidden'); $('noresults').classList.add('notice');
+    return;
+  }
+  openForm(rec);
 });
 $('walkin').addEventListener('click', () => openForm(null));
 

@@ -218,7 +218,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && p.startsWith('/api/participant/')) {
       const rec = db.participants.find(x => x.id === p.split('/').pop());
-      return rec ? send(res, 200, publicRecord(rec)) : send(res, 404, { error: 'Not found' });
+      if (!rec) return send(res, 404, { error: 'Not found' });
+      // already checked in: say so, but don't hand out their details or a form to change them
+      if (rec.checkedInAt) return send(res, 200, { id: rec.id, firstName: rec.firstName, lastName: rec.lastName, checkedIn: true });
+      return send(res, 200, publicRecord(rec));
     }
     if (req.method === 'POST' && p === '/api/checkin') {
       const b = await readBody(req, 20000);
