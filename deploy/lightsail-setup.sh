@@ -20,6 +20,9 @@ ENV_FILE=/etc/checkinapp.env
 if [ -z "${ADMIN_PIN:-}" ] && [ -f "$ENV_FILE" ]; then ADMIN_PIN=$(grep '^ADMIN_PIN=' "$ENV_FILE" | cut -d= -f2-); fi
 [ -n "${ADMIN_PIN:-}" ] || { echo "Set ADMIN_PIN, e.g.: sudo ADMIN_PIN='long-secret' bash setup.sh"; exit 1; }
 [ ${#ADMIN_PIN} -ge 8 ] || { echo "ADMIN_PIN must be at least 8 characters"; exit 1; }
+# Event code inside the QR: generated once and kept, so printed QR codes stay valid across updates
+if [ -z "${EVENT_KEY:-}" ] && [ -f "$ENV_FILE" ]; then EVENT_KEY=$(grep '^EVENT_KEY=' "$ENV_FILE" | cut -d= -f2- || true); fi
+[ -n "${EVENT_KEY:-}" ] || EVENT_KEY=$(head -c 12 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=')
 
 IP=$(curl -fsS https://checkip.amazonaws.com | tr -d '[:space:]')
 HOSTNAME_PUBLIC="${DOMAIN:-$(echo "$IP" | tr . -).sslip.io}"
@@ -64,6 +67,7 @@ echo ">> Writing config…"
 umask 077
 cat > "$ENV_FILE" <<CONF
 ADMIN_PIN=$ADMIN_PIN
+EVENT_KEY=$EVENT_KEY
 PUBLIC_URL=https://$HOSTNAME_PUBLIC/
 TRUST_PROXY=1
 HOST=127.0.0.1
@@ -121,7 +125,7 @@ sleep 3
 curl -fsS http://127.0.0.1:3000/health && echo "  app OK"
 echo
 echo "=============================================================="
-echo " Done!  Check-in page:  https://$HOSTNAME_PUBLIC/"
-echo "        Admin page:     https://$HOSTNAME_PUBLIC/admin"
+echo " Done!  Admin page:  https://$HOSTNAME_PUBLIC/admin"
+echo "        Guests check in by scanning the QR code shown on the admin page."
 echo " (HTTPS certificate can take up to a minute on first visit)"
 echo "=============================================================="

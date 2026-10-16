@@ -4,8 +4,31 @@ const form = $('form');
 let currentId = null;
 let onFile = {}; // fields we already hold (shown masked) — may be left blank to keep
 
+// ---- event code from the QR (…/#k=CODE) ----
+// Kept in this browser so a refresh still works, then removed from the address bar.
+// The part after # is never sent to the server in the URL, so it doesn't end up in logs.
+let KEY = '';
+{
+  const m = location.hash.match(/k=([\w-]+)/);
+  if (m) KEY = m[1];
+  try {
+    if (KEY) localStorage.setItem('eventKey', KEY);
+    else KEY = localStorage.getItem('eventKey') || '';
+  } catch {}
+  if (m) history.replaceState(null, '', location.pathname);
+}
+async function api(url, opt = {}) {
+  const r = await fetch(url, { ...opt, headers: { ...(opt.headers || {}), 'x-event-key': KEY } });
+  if (r.status === 403) { needQr(); throw new Error('Please scan the QR code at the registration desk.'); }
+  return r;
+}
+function needQr() {
+  try { localStorage.removeItem('eventKey'); } catch {}
+  show('step-needqr');
+}
+
 function show(step) {
-  ['step-search','step-form','success'].forEach(s => $(s).classList.toggle('hidden', s !== step));
+  ['step-needqr','step-search','step-form','success'].forEach(s => $(s).classList.toggle('hidden', s !== step));
   window.scrollTo(0, 0);
 }
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -20,27 +43,22 @@ async function runSearch() {
   const q = $('q').value.trim();
   $('results').innerHTML = '';
   $('noresults').classList.add('hidden');
-  if (q.replace(/s/g, '').length < 3) return;
-  const list = await fetch('/api/search?q=' + encodeURIComponent(q)).then(r => r.json()).catch(() => []);
+  if (q.replace(/\s/g, '').length < 3) return;
+  const list = await api('/api/search?q=' + encodeURIComponent(q)).then(r => r.json()).catch(() => []);
   if (!list.length) {
     $('noresults').textContent = 'No match found. Check spelling or try just your first or last name.';
     $('noresults').classList.remove('hidden');
     return;
   }
   $('results').innerHTML = list.map(p =>
-    `<button class="result" data-id="${esc(p.id)}"><span>${esc(p.firstName)} ${esc(p.lastName)}<small>${esc(p.organisation)}</small></span>${p.checkedIn ? '<span class="badge">Already checked in</span>' : ''}</button>`
+    `<button class="result" data-id="${esc(p.id)}"><span>${esc(p.firstName)} ${esc(p.lastName)}<small>${esc(p.organisation)}</small></span></button>`
   ).join('');
 }
 $('results').addEventListener('click', async e => {
   const btn = e.target.closest('.result');
   if (!btn) return;
-  const rec = await fetch('/api/participant/' + btn.dataset.id).then(r => r.json());
-  if (rec.checkedIn) {
-    $('noresults').textContent = rec.firstName + ' ' + rec.lastName + ' is already checked in. If this is you, please go to the front desk.';
-    $('noresults').classList.remove('hidden');
-    return;
-  }
-  openForm(rec);
+  const r = await api('/api/participant/' + encodeURIComponent(btn.dataset.id)).catch(() => null);
+  if (r && r.ok) openForm(await r.json());
 });
 $('walkin').addEventListener('click', () => openForm(null));
 
@@ -66,8 +84,6 @@ function openForm(rec) {
       : '';
     form.elements[f].placeholder = onFile[f] ? (f === 'email' ? 'Type a different email (optional)' : 'Type a different number (optional)') : (f === 'phone' ? 'Include country code, e.g. +61 4…' : '');
   }
-  if (rec.gender && ![...form.elements.gender.options].some(o => o.value === rec.gender)) form.elements.gender.value = '';
-  for (const c of ['consentWhatsapp','consentPhoto']) if (rec[c]) form.querySelector(`input[name=${c}][value=${rec[c]}]`)?.click();
   markMissing();
   show('step-form');
 }
@@ -108,8 +124,9 @@ form.addEventListener('submit', async e => {
   }
   $('submit').disabled = true; $('submit').textContent = 'Checking in…';
   try {
-    const r = await fetch('/api/checkin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    const r = await api('/api/checkin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
     const out = await r.json();
+    if (r.status === 409) { $('err').textContent = out.error; $('err').style.display = 'block'; return; }
     if (!r.ok) throw new Error(out.error || 'Something went wrong');
     try { localStorage.setItem('checkedIn', JSON.stringify(out)); } catch {}
     showSuccess(out);
@@ -128,23 +145,23 @@ function showSuccess(o) {
   show('success');
 }
 $('another').addEventListener('click', () => {
-  try { localStorage.removeItem('checkedIn'); } catch {}
+  forgetSaved();
   $('q').value = ''; $('results').innerHTML = ''; $('noresults').classList.add('hidden');
   show('step-search');
 });
 
 // If this phone already checked in, keep showing the tick (handy at the front desk) —
-// but only while the server still has that check-in (an admin may have cleared or undone it)
+// but only while its private ticket is still valid (an admin may have cleared or undone it)
 function forgetSaved() { try { localStorage.removeItem('checkedIn'); } catch {} }
 (async () => {
+  if (!KEY) return needQr();
   let saved;
   try { saved = JSON.parse(localStorage.getItem('checkedIn')); } catch {}
   if (!saved) return;
-  if (!saved.id) return forgetSaved(); // saved by an older version — can't verify
+  if (!saved.id || !saved.ticket) return forgetSaved(); // saved by an older version — can't verify
   showSuccess(saved);
   try {
-    const r = await fetch('/api/participant/' + encodeURIComponent(saved.id));
-    if (r.status === 404) { forgetSaved(); show('step-search'); return; }
-    if (r.ok && !(await r.json()).checkedIn) { forgetSaved(); show('step-search'); }
-  } catch { /* offline: keep showing the saved tick */ }
+    const r = await api('/api/ticket?id=' + encodeURIComponent(saved.id) + '&t=' + encodeURIComponent(saved.ticket));
+    if (r.ok && !(await r.json()).valid) { forgetSaved(); show('step-search'); }
+  } catch { /* offline or no code: keep what's on screen */ }
 })();

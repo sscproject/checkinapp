@@ -9,6 +9,9 @@ const PORT = process.env.PORT || 3000;
 // No default PIN: if ADMIN_PIN is not set, a random one is generated and printed at startup
 const ADMIN_PIN = process.env.ADMIN_PIN || crypto.randomBytes(4).toString('hex');
 const PUBLIC_URL = process.env.PUBLIC_URL || ''; // e.g. https://checkin.example.org/ — used for the QR code
+// Event code carried inside the QR code (…/#k=CODE). The public API answers only requests that carry it,
+// so someone who just finds the address on the internet can't search or scrape the attendee list.
+const EVENT_KEY = process.env.EVENT_KEY || crypto.randomBytes(9).toString('base64url');
 const TRUST_PROXY = process.env.TRUST_PROXY === '1'; // set when behind an AWS load balancer / reverse proxy
 const DATA_DIR = process.env.DATA_DIR || __dirname; // point at persistent storage in production
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -77,7 +80,7 @@ function search(query) {
     .filter(r => r.matched === qTokens.length || (qTokens.length > 1 && r.matched >= qTokens.length - 1 && r.score >= 3))
     .sort((a, b) => b.matched - a.matched || b.score - a.score)
     .slice(0, 6)
-    .map(({ p }) => ({ id: p.id, firstName: p.firstName, lastName: p.lastName, organisation: p.organisation, checkedIn: !!p.checkedInAt }));
+    .map(({ p }) => ({ id: p.id, firstName: p.firstName, lastName: p.lastName, organisation: p.organisation }));
 }
 
 // ---------- privacy: only partial email/phone is ever sent to the public page ----------
@@ -97,8 +100,8 @@ function maskPhone(ph) {
 }
 function publicRecord(p) {
   return {
-    id: p.id, firstName: p.firstName, lastName: p.lastName, role: p.role, organisation: p.organisation, gender: p.gender,
-    emailMasked: maskEmail(p.email), phoneMasked: maskPhone(p.phone), checkedIn: !!p.checkedInAt,
+    id: p.id, firstName: p.firstName, lastName: p.lastName, role: p.role, organisation: p.organisation,
+    emailMasked: maskEmail(p.email), phoneMasked: maskPhone(p.phone),
   };
 }
 
@@ -146,6 +149,8 @@ setInterval(() => { const now = Date.now(); for (const [k, b] of buckets) if (no
 
 // admin auth: constant-time compare + lockout after 10 wrong PINs per IP in 15 minutes
 const pinHash = crypto.createHash('sha256').update(ADMIN_PIN).digest();
+const keyHash = crypto.createHash('sha256').update(EVENT_KEY).digest();
+const hasEventKey = req => crypto.timingSafeEqual(crypto.createHash('sha256').update(String(req.headers['x-event-key'] || '')).digest(), keyHash);
 function checkAdmin(req) {
   const ip = clientIp(req);
   const fails = buckets.get('fail:' + ip);
@@ -195,11 +200,22 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && p === '/admin') return send(res, 200, fs.readFileSync(path.join(PUBLIC, 'admin.html')), 'text/html; charset=utf-8');
 
+    // public API needs the event code from the QR
+    if (p.startsWith('/api/') && !p.startsWith('/api/admin/') && !hasEventKey(req))
+      return send(res, 403, { error: 'Please scan the QR code at the registration desk.', needQr: true });
+
     // public API — generous limit because everyone at the venue may share one IP address
     if (p.startsWith('/api/') && !p.startsWith('/api/admin/') && limited('pub:' + clientIp(req), 5000, 60000))
       return send(res, 429, { error: 'Too many requests, please wait a moment.' });
 
     if (req.method === 'GET' && p === '/api/search') return send(res, 200, search(url.searchParams.get('q') || ''));
+    if (req.method === 'GET' && p === '/api/ticket') {
+      const rec = db.participants.find(x => x.id === url.searchParams.get('id'));
+      const t = String(url.searchParams.get('t') || '');
+      const valid = !!(rec && rec.checkedInAt && rec.ticket && t.length === rec.ticket.length &&
+        crypto.timingSafeEqual(Buffer.from(t), Buffer.from(rec.ticket)));
+      return send(res, 200, { valid });
+    }
     if (req.method === 'GET' && p.startsWith('/api/participant/')) {
       const rec = db.participants.find(x => x.id === p.split('/').pop());
       return rec ? send(res, 200, publicRecord(rec)) : send(res, 404, { error: 'Not found' });
@@ -212,7 +228,7 @@ const server = http.createServer(async (req, res) => {
 
       // already checked in: details are locked, just show the confirmation again
       if (rec && rec.checkedInAt)
-        return send(res, 200, { ok: true, already: true, id: rec.id, firstName: rec.firstName, lastName: rec.lastName, organisation: rec.organisation, checkedInAt: rec.checkedInAt });
+        return send(res, 409, { error: 'This registration is already checked in. Please go to the front desk.' });
 
       const data = {};
       for (const f of FIELDS) data[f] = clean(b[f]);
@@ -233,8 +249,9 @@ const server = http.createServer(async (req, res) => {
       }
       Object.assign(rec, data);
       rec.checkedInAt = new Date().toISOString();
+      rec.ticket = crypto.randomBytes(12).toString('base64url');
       save();
-      return send(res, 200, { ok: true, id: rec.id, firstName: rec.firstName, lastName: rec.lastName, organisation: rec.organisation, checkedInAt: rec.checkedInAt });
+      return send(res, 200, { ok: true, id: rec.id, ticket: rec.ticket, firstName: rec.firstName, lastName: rec.lastName, organisation: rec.organisation, checkedInAt: rec.checkedInAt });
     }
 
     // admin API
@@ -242,7 +259,7 @@ const server = http.createServer(async (req, res) => {
       const auth = checkAdmin(req);
       if (auth === 'locked') return send(res, 429, { error: 'Too many wrong PINs. Try again in 15 minutes.' });
       if (auth !== 'ok') return send(res, 401, { error: 'Wrong PIN' });
-      if (req.method === 'GET' && p === '/api/admin/participants') return send(res, 200, { participants: db.participants, publicUrl: PUBLIC_URL, urls: PUBLIC_URL ? [] : lanUrls() });
+      if (req.method === 'GET' && p === '/api/admin/participants') return send(res, 200, { participants: db.participants, publicUrl: PUBLIC_URL, eventKey: EVENT_KEY, urls: PUBLIC_URL ? [] : lanUrls() });
       if (req.method === 'POST' && p === '/api/admin/import') {
         const { rows = [], mode = 'merge' } = await readBody(req, 5e6);
         if (!Array.isArray(rows) || rows.length > 5000) return send(res, 400, { error: 'Too many rows (max 5000).' });
@@ -270,14 +287,14 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'POST' && p === '/api/admin/undo') {
         const { id } = await readBody(req, 2000);
         const rec = db.participants.find(x => x.id === id);
-        if (rec) { delete rec.checkedInAt; save(); audit(req, 'undo-checkin'); }
+        if (rec) { delete rec.checkedInAt; delete rec.ticket; save(); audit(req, 'undo-checkin'); }
         return send(res, 200, { ok: true });
       }
       if (req.method === 'POST' && p === '/api/admin/reset-checkins') {
         // keep the registration list, remove walk-ins and all check-in answers
         db.participants = db.participants.filter(x => !x.walkIn);
         for (const x of db.participants) {
-          delete x.checkedInAt; delete x.consentWhatsapp; delete x.consentPhoto;
+          delete x.checkedInAt; delete x.ticket; delete x.consentWhatsapp; delete x.consentPhoto;
         }
         save();
         audit(req, 'clear-checkins');
@@ -306,7 +323,8 @@ server.listen(PORT, process.env.HOST || '0.0.0.0', () => {
   if (process.env.ADMIN_PIN) console.log('  Admin PIN: (set via ADMIN_PIN)');
   else console.log('  Admin PIN for this run: ' + ADMIN_PIN + '   (set ADMIN_PIN to choose your own)');
   if (process.env.ADMIN_PIN && process.env.ADMIN_PIN.length < 8) console.log('  WARNING: ADMIN_PIN is short — use at least 8 characters in production.');
-  console.log('  Check-in page for phones (same Wi-Fi):');
-  (PUBLIC_URL ? [PUBLIC_URL] : lanUrls()).forEach(u => console.log('     ' + u));
+  if (!process.env.EVENT_KEY) console.log('  Event code for this run: ' + EVENT_KEY + '   (set EVENT_KEY to keep the same QR code across restarts)');
+  console.log('  Check-in page for phones (same Wi-Fi) — or scan the QR on the admin page:');
+  (PUBLIC_URL ? [PUBLIC_URL] : lanUrls()).forEach(u => console.log('     ' + u + '#k=' + EVENT_KEY));
   console.log('\n  Keep this window open during the event. Press Ctrl+C to stop.\n');
 });

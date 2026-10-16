@@ -191,7 +191,9 @@ $('exportCsv').onclick = () => {
 };
 
 // ---------- QR ----------
+let eventKey = '';
 function setupQr(d) {
+  eventKey = d.eventKey || '';
   const local = ['localhost', '127.0.0.1'].includes(location.hostname);
   const opts = [];
   if (d.publicUrl) opts.push(d.publicUrl);
@@ -202,8 +204,9 @@ function setupQr(d) {
   $('urlPick').onchange = drawQr;
   drawQr();
 }
+// The QR carries the event code after # so only people who scan it can use the check-in API
 function drawQr() {
-  const url = $('urlPick').value;
+  const url = $('urlPick').value + '#k=' + eventKey;
   $('qr').innerHTML = '';
   new QRCode($('qr'), { text: url, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
   $('qrLink').href = url; $('qrLink').textContent = url;
@@ -211,7 +214,7 @@ function drawQr() {
 $('printQr').onclick = () => {
   const img = $('qr').querySelector('img')?.src || $('qr').querySelector('canvas')?.toDataURL();
   const w = window.open('');
-  w.document.write(`<div style="text-align:center;font-family:sans-serif;padding-top:60px"><h2 style="font-size:26px;color:#0b5394">Asia-Pacific Digital Health Interoperability Bootcamp 2026</h2><h1 style="font-size:42px">Scan to Check in</h1><img src="${img}" style="width:420px;image-rendering:pixelated"><p style="font-size:22px">${esc($('urlPick').value)}</p></div>`);
+  w.document.write(`<div style="text-align:center;font-family:sans-serif;padding-top:60px"><h2 style="font-size:26px;color:#0b5394">Asia-Pacific Digital Health Interoperability Bootcamp 2026</h2><h1 style="font-size:42px">Scan to Check in</h1><img src="${img}" style="width:420px;image-rendering:pixelated"><p style="font-size:20px;color:#555">Use your phone camera</p></div>`);
   w.document.close(); setTimeout(() => w.print(), 300);
 };
 setInterval(() => $('clock').textContent = new Date().toLocaleTimeString(), 1000);

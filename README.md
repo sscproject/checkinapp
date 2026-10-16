@@ -57,6 +57,7 @@ Only First Name and Last Name are required. Other columns can be blank, and part
 | `PORT` | `3000` | HTTP port |
 | `ADMIN_PIN` | random each start | **Required in production.** Use a long passphrase (12+ characters), stored in AWS Secrets Manager or SSM Parameter Store, not in the repo. |
 | `DATA_DIR` | app folder (`/data` in Docker) | Folder where `data.json` is stored. **Must be persistent storage.** |
+| `EVENT_KEY` | random each start | Event code carried in the QR code (`/#k=CODE`). The public API answers only requests that carry it. Set it, or let the setup script generate and keep one, so printed QR codes stay valid. |
 | `PUBLIC_URL` | (empty) | Public URL, e.g. `https://checkin.example.org/`. Used for the QR code on the admin page. |
 | `TRUST_PROXY` | (off) | Set to `1` when behind an ALB or reverse proxy, so rate limiting uses the real client IP from `X-Forwarded-For`. Only enable it when the app is reachable **only** through the proxy. |
 
@@ -88,7 +89,8 @@ ADMIN_PIN='<long-secret>' TRUST_PROXY=1 DATA_DIR=/var/lib/event-checkin PUBLIC_U
 **Built in**
 - **Admin protection:** admin pages and APIs require `ADMIN_PIN`, which is compared in constant time. An IP address is locked out for 15 minutes after 10 wrong PINs. There is no default PIN in the code.
 - **Masked contact details:** the public check-in page never receives a participant's full email or phone, only a masked version (`m•••@domain`, `•••123`). Participants can keep it or type a new one.
-- **Search limits:** search needs at least 3 characters and returns at most 6 names, showing only name and organisation.
+- **Event code:** the public API needs the event code from the QR code, so the attendee list can't be searched or scraped by someone who only knows the address.
+- **Minimal public data:** search needs at least 3 characters and returns at most 6 names, with only name and organisation. Gender and check-in status are never sent to the public page. A phone can confirm only its own check-in, using a private receipt code.
 - **Locked after check-in:** once someone has checked in, their record can't be changed from the public page. Only an admin can undo it.
 - **Rate and size limits:** public APIs are limited per IP (generous, because a venue shares one IP). Request bodies, field lengths (200 characters) and walk-in numbers (500) are capped.
 - **Security headers:** CSP, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`.
